@@ -1,6 +1,5 @@
 import time
 import pyautogui
-from pynput import mouse, keyboard
 import threading
 import tkinter as tk
 from tkinter import font, messagebox
@@ -10,6 +9,7 @@ import requests  # 天气API请求库
 from loguru import logger  # 日志库
 from PIL import Image, ImageTk
 from io import BytesIO
+import ctypes
 
 # 配置日志功能
 logger.add(
@@ -21,6 +21,8 @@ logger.add(
     encoding = "UTF-8"
 )
 
+# TODO: 添加pytray 托盘功能
+# TODO: 修改放锁屏的实现方式，模拟鼠标移动 / 键盘虚拟键F15(shift)点击 / 调用系统api:SetThreadExecutionState
 
 # 定义类
 class NoSleepingApp:
@@ -33,8 +35,7 @@ class NoSleepingApp:
 
         # 线程锁和状态变量
         self.lock = threading.Lock()
-        self.last_activity_time = time.time()
-        self.auto_click_enabled = False
+        self.awake_screen_enabled = False
         self.running = True
 
         # 天气相关配置
@@ -55,12 +56,9 @@ class NoSleepingApp:
         # 更新时钟
         self.update_clock()
 
-        # 启动监听器
-        self.start_listeners()
-
         # 启动自动点击线程
-        self.click_thread = threading.Thread(target=self.auto_click, daemon=True)
-        self.click_thread.start()
+        self.awake_thread = threading.Thread(target=self.awake_screen, daemon=True)
+        self.awake_thread.start()
 
         # 启动天气更新线程
         self.weather_thread = threading.Thread(target=self.update_weather, daemon=True)
@@ -106,7 +104,7 @@ class NoSleepingApp:
         self.control_btn = tk.Button(
             main_frame,
             text="No sleeping",
-            command=self.toggle_auto_click,
+            command=self.toggle_awake_screen,
             font=font.Font(family="Arial", size=14, weight="bold"),
             width=15, height=1,
             bg="#4CAF50", fg="white",
@@ -147,80 +145,76 @@ class NoSleepingApp:
         #logger.debug(f"chinese num: {chinese_num}")
         return chinese_num[num - 1] if 1 <= num <= 30 else str(num)
 
-    def toggle_auto_click(self):
+    def toggle_awake_screen(self):
         with self.lock:
-            self.auto_click_enabled = not self.auto_click_enabled
+            self.awake_screen_enabled = not self.awake_screen_enabled
 
-        if self.auto_click_enabled:
+        if self.awake_screen_enabled:
             self.control_btn.config(text="No Sleeping", bg="#f44336")
             self.status_label.config(text="Function is running now", fg="#d32f2f")
         else:
             self.control_btn.config(text="No sleeping", bg="#4CAF50")
             self.status_label.config(text="Function is disabled", fg="#666666")
 
-    def update_last_activity(self):
-        with self.lock:
-            self.last_activity_time = time.time()
+    def awake_screen(self):
+        previous_enabled = False  # 初始化状态变量,用于判断按钮点按状态变化的
 
-    # 鼠标和键盘监听回调
-    def on_mouse_move(self, x, y):
-        self.update_last_activity()
-
-    def on_mouse_click(self, x, y, button, pressed):
-        self.update_last_activity()
-
-    def on_mouse_scroll(self, x, y, dx, dy):
-        self.update_last_activity()
-
-    def on_key_press(self, key):
-        self.update_last_activity()
-
-    def start_listeners(self):
-        self.mouse_listener = mouse.Listener(
-            on_move=self.on_mouse_move,
-            on_click=self.on_mouse_click,
-            on_scroll=self.on_mouse_scroll
-        )
-        self.keyboard_listener = keyboard.Listener(
-            on_press=self.on_key_press
-        )
-        self.mouse_listener.start()
-        self.keyboard_listener.start()
-
-    def auto_click(self):
         while self.running:
             with self.lock:
                 current_time = time.time()
-                enabled = self.auto_click_enabled
-                last_time = self.last_activity_time
-                
-                #logger.debug(f"enable status: {enabled}")
-                #logger.debug(f"last timestamp: {last_time}")
+                enabled = self.awake_screen_enabled
 
+            # 检查状态是否发生变化
+            if enabled != previous_enabled:
+                if enabled:  # 状态由 False → True
+                    try:
+                        result = ctypes.windll.kernel32.SetThreadExecutionState(
+                            0x80000000 |  # ES_CONTINUOUS
+                            0x00000002   # ES_DISPLAY_REQUIRED
+                        )
+                        if result == 0:
+                            raise ctypes.WinError()
+                        logger.debug("SetThreadExecutionState called successfully")
+
+                        # 更新 UI 状态
+                        self.root.after(0, lambda: self.status_label.config(
+                            text="Preventing screen lock...", fg="#1976D2"))
+                    except Exception as e:
+                        logger.error(f"SetThreadExecutionState failed: {e}")
+                        # 备用方案：移动鼠标
+                        screen_width, screen_height = pyautogui.size()
+                        x, y = pyautogui.position()
+                        pyautogui.moveTo(x + 1, y)
+                        logger.warning("Using pyautogui as fallback")
+
+                else:  # 状态由 True → False
+                    try:
+                        result = ctypes.windll.kernel32.SetThreadExecutionState(0)
+                        if result == 0:
+                            raise ctypes.WinError()
+                        logger.debug("Reset execution state to allow sleep")
+
+                        # 更新 UI 状态
+                        self.root.after(0, lambda: self.status_label.config(
+                            text="No sleeping is disabled", fg="#2E7D32"))
+                    except Exception as e:
+                        logger.error(f"Failed to reset execution state: {e}")
+
+                # 更新 previous_enabled
+                previous_enabled = enabled
+
+            # 功能启用时，每 5 秒执行一次
             if enabled:
-                if current_time - last_time > 10 * 60:
-                    screen_width, screen_height = pyautogui.size()
-                    pyautogui.click(screen_width // 2, screen_height // 2)
-                    click_time = time.strftime("%H:%M:%S", time.localtime(current_time))
-                    self.root.after(0, lambda ct=click_time: self.status_label.config(
-                        text=f"Awaking the screen at {ct}", fg="#d32f2f"))
-                    time.sleep(5 * 60)
-                else:
-                    remaining = 10 * 60 - (current_time - last_time)
-                    mins, secs = divmod(int(max(0, remaining)), 60)
-                    self.root.after(0, lambda m=mins, s=secs: self.status_label.config(
-                        text=f"Waiting to awake the screen after {m}min {s}s", fg="#666666"))
-                    time.sleep(5)
+                time.sleep(5)
             else:
-                time.sleep(1)
+                time.sleep(1)  # 状态未启用时，降低 CPU 使用率
 
     def on_close(self):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             with self.lock:
                 self.running = False
-            self.mouse_listener.stop()
-            self.keyboard_listener.stop()
-            self.click_thread.join(timeout=5)
+
+            self.awake_thread.join(timeout=5)
             self.root.destroy()
 
     # 天气API调用（WeatherAPI.com）
@@ -255,7 +249,7 @@ class NoSleepingApp:
                     "--", "faied to load", "❌"))
 
             # 天气信息更新的信息完成后返回之前的功能是否使用的状态
-            if self.auto_click_enabled:
+            if self.awake_screen_enabled:
                 self.status_label.config(text="Function is running now", fg="#d32f2f")
             else:
                 self.status_label.config(text="Function is disabled", fg="#666666")
