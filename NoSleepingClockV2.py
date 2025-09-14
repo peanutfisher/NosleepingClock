@@ -7,10 +7,11 @@ import datetime
 from lunardate import LunarDate
 import requests  # 天气API请求库
 from loguru import logger  # 日志库
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
 from io import BytesIO
 import ctypes
 from functools import wraps
+import pystray  # 系统托盘图标库
 
 
 # Windows API：设置系统执行状态
@@ -39,7 +40,7 @@ def log_function_call(func):
         return result
     return wrapper
 
-class NoSleepingApp:
+class NoSleepingClock:
     def __init__(self, root):
         self.root = root
         self.root.title("No Sleeping Clock")
@@ -57,7 +58,7 @@ class NoSleepingApp:
 
         # 新增状态变量
         self.checkbox_enabled = False  # 是否启用自动停止
-        self.checkbox_var = tk.IntVar(value=1) # 复选框变量 - 默认勾选
+        self.checkbox_var = tk.IntVar(value=0) # 复选框变量 - 默认不勾选
         self.selected_hours = tk.StringVar(value="8")  # 默认8小时
 
         # 天气相关配置
@@ -72,6 +73,9 @@ class NoSleepingApp:
         self.status_font = font.Font(family="Microsoft YaHei UI", size=13, weight="bold")
         self.weather_font = font.Font(family="Segoe UI Variable", size=11, weight="bold")
 
+        # 设置主窗口图标
+        self.root.iconbitmap(".\\ICON\\NoSleepingClock.ico")
+    
         # 创建界面
         self.create_widgets()
 
@@ -91,6 +95,20 @@ class NoSleepingApp:
         # 窗口关闭事件
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # 创建托盘相关配置
+        self.tray_icon = None
+        self.minimized_to_tray = False
+        self.tray_icon_created = False  # 托盘图标创建标志
+        
+        # 创建托盘图标事件绑定
+        #self.root.protocol("WM_ICONIZE", self.on_minimize) # 窗口最小化事件绑定
+        self.root.bind("<Unmap>", self.on_window_unmap) # 另一种最小化事件绑定
+        
+        # 托盘running hours子菜单初始化时同步初始值
+        #self.selected_hour = int(self.selected_hours.get())
+        self.selected_hour = None
+        self.awake_screen_enabled = False
+        
     def create_widgets(self):
         main_frame = tk.Frame(self.root, bg="#f0f0f0")
         main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
@@ -166,6 +184,8 @@ class NoSleepingApp:
         # 绑定下拉框选择事件
         self.hours_combobox.bind("<<ComboboxSelected>>", self.on_hour_selected)
 
+
+        
     def update_status_label(self):
         with self.lock:
             if not self.awake_screen_enabled:
@@ -179,26 +199,27 @@ class NoSleepingApp:
             hours = int(self.remaining_time // 3600)
             minutes = int((self.remaining_time % 3600) // 60)
             seconds = int(self.remaining_time % 60)
-            if hours == 0:
-                if minutes == 0:
-                    self.status_label.config(
-                        text=f"No sleeping will stop after {seconds}s",
-                        fg="#1976D2"
-                    )
+            if self.checkbox_enabled:
+                if hours == 0:
+                    if minutes == 0:
+                        self.status_label.config(
+                            text=f"No sleeping will stop after {seconds}s",
+                            fg="#1976D2"
+                        )
+                    else:
+                        self.status_label.config(
+                            text=f"No sleeping will stop after {minutes}m {seconds}s",
+                            fg="#1976D2"
+                        )
                 else:
                     self.status_label.config(
-                        text=f"No sleeping will stop after {minutes}m {seconds}s",
+                        text=f"No sleeping will stop after {hours}h {minutes}m {seconds}s",
                         fg="#1976D2"
                     )
-            else:
-                self.status_label.config(
-                    text=f"No sleeping will stop after {hours}h {minutes}m {seconds}s",
-                    fg="#1976D2"
-                )
             if self.remaining_time // 2:
                 logger.debug(f"status_label updated: {self.remaining_time} seconds left")
-     
-     # 复选框状态变化处理           
+    
+    # 复选框状态变化处理           
     def on_auto_stop_checkbox(self):
         with self.lock:
             self.checkbox_enabled = self.auto_stop_checkbox.instate(['selected'])
@@ -209,14 +230,16 @@ class NoSleepingApp:
             if self.awake_screen_enabled:
                 self.start_timer()
         else:
-            self.hours_combobox.config(state='disabled')
+            self.hours_combobox.config(state='readonly')
             self.stop_timer()   # 强制清理残留timer线程
 
         self.root.after(0, self.update_status_label)
+        self.update_tray_menu()
 
     # 下拉框选择事件处理
     def on_hour_selected(self, event=None):
         selected_hours = int(self.selected_hours.get())
+        self.selected_hour = selected_hours # 同步更新托盘菜单状态
         total_seconds = selected_hours * self.time_unit
         logger.info(f"Selected {selected_hours} hours ({total_seconds} seconds)")
         
@@ -227,6 +250,7 @@ class NoSleepingApp:
             self.start_timer()
 
         self.root.after(0, self.update_status_label)
+        self.update_tray_menu()
     
     # 启动/停止 No Sleeping 功能
     def toggle_awake_screen(self):
@@ -240,10 +264,10 @@ class NoSleepingApp:
             self.auto_stop_checkbox.config(state='!disabled')
             self.checkbox_enabled = self.auto_stop_checkbox.instate(['selected'])
             logger.debug(f"Checkbox enabled: {self.checkbox_enabled}")
+            self.hours_combobox.config(state='readonly')  # 下拉框可看
             if self.checkbox_enabled:
-                self.hours_combobox.config(state='readonly')
                 self.start_timer()  # 自动启动倒计时
-            logger.info
+            logger.info("No Sleeping function is running now")
         else: # 按钮取消时
             self.disable_awake_screen()
             logger.info("No Sleeping function is being disabled")
@@ -256,6 +280,7 @@ class NoSleepingApp:
             #self.stop_timer()  # 确保timer线程被清理
         
         self.root.after(0, self.update_status_label)
+        self.update_tray_menu()
 
     # 维持屏幕唤醒的线程函数
     #@log_function_call
@@ -421,20 +446,7 @@ class NoSleepingApp:
         self.hours_combobox.config(state='disabled')
 
         self.stop_timer()  # 确保timer线程被清理
-
-    def on_close(self):
-        if messagebox.askokcancel("Quit", "Do you want to quit?"):
-            with self.lock:
-                self.running = False
-                self.timer_active = False
-            
-            # 等待awake_thread线程结束
-            if self.awake_thread.is_alive():
-                self.awake_thread.join(timeout=5)
-            # 处理timer线程
-            self.stop_timer()
-
-            self.root.destroy()
+        self.update_tray_menu()  # 更新托盘菜单
 
     def update_clock(self):
         now = datetime.datetime.now()
@@ -553,10 +565,211 @@ class NoSleepingApp:
             self.root.after(0, lambda: self.status_label.config(text="Cannot locate the city info, use the default city: Shanghai"))
             return self.current_city
 
+    @log_function_call
+    def create_tray_icon(self):
+        """创建系统托盘图标"""
+        logger.debug("Creating system tray icon")
+        try:
+            # 确保只创建一次
+            if self.tray_icon_created:
+                logger.debug("Tray icon already created")
+                return
+                
+            # # 创建基础图标（使用更简单的图标）
+            # icon_size = 16  # 使用更小的尺寸
+            # image = Image.new('RGBA', (icon_size, icon_size), (0, 0, 0, 0))
+            # dc = ImageDraw.Draw(image)
+            # dc.rectangle((0, 0, icon_size-1, icon_size-1), outline="blue", fill="lightblue")
+            # dc.text((3, 2), "NS", fill="black")
+            
+            image = Image.open(".\\ICON\\NoSleepingClock.ico")
+            #image = image.resize((16, 16), Image.LANCZOS) # 调整图片大小
+            
+            # TODO: The double click function is not working
+            # 定义双击事件处理函数
+            def on_double_click(icon, query):
+                logger.debug("Tray icon double-click detected")
+                self.restore_window()
+            
+            # 创建托盘菜单
+            self.tray_menu = pystray.Menu(
+                pystray.MenuItem(lambda text: "Stop" if self.awake_screen_enabled else "Start", self.toggle_awake_from_tray),
+                pystray.MenuItem('Running hours', self.create_time_menu()),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem('Restore', self.restore_window),
+                pystray.MenuItem('Quit', self.quit_app)
+            )
+            
+            self.tray_icon = pystray.Icon(
+                "NoSleepingClock",
+                icon=image,
+                title="No Sleeping Clock",
+                menu=self.tray_menu
+            )
+            
+            self.tray_icon.on_click = on_double_click
+            
+            # 启动托盘线程
+            self.tray_thread = threading.Thread(target=self.run_tray_icon, daemon=True)
+            self.tray_thread.start()
+            
+            self.tray_icon_created = True
+            logger.info("System tray icon created successfully")
+        except Exception as e:
+            logger.error(f"Failed to create system tray icon: {e}")
+            messagebox.showerror("Error", f"Failed to create system tray icon: {e}")
+
+    def create_time_menu(self):
+        """创建时间选项子菜单"""           
+        def make_menu_item(h):
+            self.selected_hour = int(self.selected_hours.get())
+            def text_func(_):
+                if self.awake_screen_enabled and self.checkbox_enabled and self.selected_hour == h:
+                    return f"✓ {h}h"
+                else:
+                    return f"  {h}h"
+                # prefix = "✓" if self.selected_hour == h else "  "
+                # return f"{prefix} {h}h"
+            return pystray.MenuItem(text_func, lambda _: self.set_time_option(h))
+    
+        return pystray.Menu(*(make_menu_item(h) for h in range(1, 13)))
+
+
+    def set_time_option(self, hours):
+        """设置时间选项并更新状态"""
+        logger.info(f"Setting time option to {hours} hours")
+        
+        # 1. 更新状态
+        self.selected_hour = hours
+        self.selected_hours.set(str(hours))
+        
+        # 2. 同步主窗口状态
+        with self.lock:
+            self.checkbox_enabled = True  # 强制启用自动停止
+            self.awake_screen_enabled = True  # 启动倒计时功能
+        
+        # 3. 更新主窗口状态
+        self.auto_stop_checkbox.state(['selected'])  # 勾选复选框
+        self.hours_combobox.config(state='readonly')
+        self.on_hour_selected()  # 触发倒计时初始化
+        
+        # 4. 启动倒计时
+        self.start_timer()
+        
+        # 5. 刷新菜单显示
+        self.update_tray_menu()
+        
+        logger.debug("Time option set complete")
+
+    def update_tray_menu(self):
+        """更新托盘菜单状态"""
+        if self.tray_icon:
+            # 重新创建整个菜单
+            self.tray_menu = pystray.Menu(
+                pystray.MenuItem(lambda text: "Stop" if self.awake_screen_enabled else "Start",self.toggle_awake_from_tray),
+                pystray.MenuItem('Running hours', self.create_time_menu()),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem('Restore', self.restore_window),
+                pystray.MenuItem('Quit', self.quit_app)
+            )
+            
+            # 更新菜单
+            self.tray_icon.menu = self.tray_menu
+            self.tray_icon.update_menu()
+
+    def run_tray_icon(self):
+        """运行托盘图标"""
+        try:
+            if self.tray_icon:
+                self.tray_icon.run()
+        except Exception as e:
+            logger.error(f"Tray icon run failed: {e}")
+
+
+    def on_minimize(self):
+        """处理窗口最小化操作"""
+        logger.debug("Window is being minimized")
+        self.minimized_to_tray = True
+        self.root.withdraw()  # 隐藏主窗口
+        
+        # 确保创建托盘图标
+        if not self.tray_icon_created:
+            messagebox.showinfo("Minimize to Tray", "No Sleeping Clock is minimized to the Tray")   
+            self.create_tray_icon()
+        else:
+            # 如果已创建，确保图标可见
+            if self.tray_icon:
+                self.tray_icon.visible = True
+                
+        return True  # 返回True表示已处理最小化事件
+
+    def on_window_unmap(self, event):
+        """处理窗口隐藏事件"""
+        #pass
+        if event.widget == self.root and not self.root.winfo_ismapped():
+            logger.debug("Window is unmapped, triggering minimize handling")
+            # 只有在未最小化到托盘的情况下才触发 on_minimize
+            if not self.tray_icon_created:
+                self.on_minimize()
+            if not self.minimized_to_tray:
+                self.on_minimize()
+                
+    def toggle_awake_from_tray(self):
+        """通过托盘菜单切换No Sleeping状态"""
+        logger.info("Toggle awake screen from tray menu")
+        self.toggle_awake_screen()
+        # 更新托盘菜单状态
+        self.update_tray_menu()
+
+
+    def quit_app(self):
+        """退出应用程序"""
+        logger.info("Quitting application through tray menu")
+        self.on_close()
+
+    def restore_window(self):
+        """恢复窗口"""
+        logger.info("Restoring window from system tray")
+        self.root.deiconify()  # 显示主窗口
+        self.root.lift()      # 置顶窗口
+        self.root.focus_force()  # 聚焦窗口
+        self.minimized_to_tray = False
+        
+        # 隐藏托盘图标（可选）
+        # if self.tray_icon and self.tray_icon.visible:
+        #     self.tray_icon.stop()  # 停止托盘图标
+        #     self.tray_icon = None
+        #     self.tray_icon_created = False
+
+    # 窗口关闭：
+    def on_close(self):
+        """覆盖窗口关闭事件"""
+        if messagebox.askokcancel("Quit", "Do you want to Quit the Window?"):
+            with self.lock:
+                self.running = False
+                self.timer_active = False
+            
+            # 停止托盘图标
+            if self.tray_icon and self.tray_icon.visible:
+                try:
+                    self.tray_icon.stop()
+                except:
+                    pass
+            
+            # 等待awake_thread线程结束
+            if self.awake_thread and self.awake_thread.is_alive():
+                self.awake_thread.join(timeout=2.0)
+            # 处理timer线程
+            self.stop_timer()
+
+            self.root.destroy()
+
+
+    # main函数
 if __name__ == "__main__":
     try:
         root = tk.Tk()
-        app = NoSleepingApp(root)
+        app = NoSleepingClock(root)
         root.mainloop()
     except Exception:
         logger.exception("OMG! Error Shows!")
