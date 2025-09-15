@@ -81,8 +81,8 @@ class NoSleepingClock:
 
         # 更新时钟
         self.update_clock()
-        #self.time_unit = 3600  # 每小时的秒数
-        self.time_unit = 10  # 测试用，每10秒代表1小时
+        self.time_unit = 3600  # 每小时的秒数
+        #self.time_unit = 10  # 测试用，每10秒代表1小时
         
         # 启动自动点击线程
         self.awake_thread = threading.Thread(target=self.awake_screen, daemon=True)
@@ -193,7 +193,7 @@ class NoSleepingClock:
                 return
 
             if not self.checkbox_enabled:
-                self.status_label.config(text="No sleeping is running forever", fg="#d32f2f")
+                self.status_label.config(text="No sleeping is running now", fg="#d32f2f")
                 return
 
             hours = int(self.remaining_time // 3600)
@@ -216,7 +216,7 @@ class NoSleepingClock:
                         text=f"No sleeping will stop after {hours}h {minutes}m {seconds}s",
                         fg="#1976D2"
                     )
-            if self.remaining_time // 2:
+            if int(self.remaining_time % 2) == 0:
                 logger.debug(f"status_label updated: {self.remaining_time} seconds left")
     
     # 复选框状态变化处理           
@@ -267,10 +267,10 @@ class NoSleepingClock:
             self.hours_combobox.config(state='readonly')  # 下拉框可看
             if self.checkbox_enabled:
                 self.start_timer()  # 自动启动倒计时
-            logger.info("No Sleeping function is running now")
+            logger.info("No Sleeping is running now")
         else: # 按钮取消时
             self.disable_awake_screen()
-            logger.info("No Sleeping function is being disabled")
+            logger.info("No Sleeping is being disabled")
             # self.control_btn.config(text="No sleeping", bg="#4CAF50")
             # self.status_label.config(text="No sleeping is being disabled", fg="#666666")
             # self.auto_stop_checkbox.config(state='disabled')
@@ -302,11 +302,11 @@ class NoSleepingClock:
                             )
                         if result == 0:
                             raise ctypes.WinError()
-                        logger.debug("SetThreadExecutionState called successfully")
+                        logger.debug("Win API SetThreadExecutionState called successfully")
 
                         # 更新 UI 状态
                         self.root.after(0, lambda: self.status_label.config(
-                            text="Preventing screen lock...", fg="#1976D2"))
+                            text="No sleeping is running now", fg="#1976D2"))
                     except Exception as e:
                         logger.error(f"SetThreadExecutionState failed: {e}")
                         # 备用方案：移动鼠标
@@ -355,7 +355,6 @@ class NoSleepingClock:
         with self.lock: 
             self.remaining_time = total_seconds
             self.timer_active = True
-            logger.debug(f"start_timer:Timer active status: {self.timer_active}")
         
         thread_name = f"TimerThread-{selected_hours}h"
         self.timer_thread = threading.Thread(target=self.run_timer, name=thread_name, daemon=True)
@@ -382,7 +381,7 @@ class NoSleepingClock:
             # 倒计时结束，自动关闭功能
             if self.remaining_time <= 0 and self.awake_screen_enabled:
                 self.root.after(0, self.disable_awake_screen)
-                logger.info("Timer ended, No Sleeping function disabled automatically")
+                logger.info("Timer ended, No Sleeping function is being disabled automatically")
         except Exception as e:
             logger.error(f"Timer thread error: {e}")
         finally:
@@ -574,16 +573,16 @@ class NoSleepingClock:
             if self.tray_icon_created:
                 logger.debug("Tray icon already created")
                 return
-                
-            # # 创建基础图标（使用更简单的图标）
-            # icon_size = 16  # 使用更小的尺寸
-            # image = Image.new('RGBA', (icon_size, icon_size), (0, 0, 0, 0))
-            # dc = ImageDraw.Draw(image)
-            # dc.rectangle((0, 0, icon_size-1, icon_size-1), outline="blue", fill="lightblue")
-            # dc.text((3, 2), "NS", fill="black")
             
-            image = Image.open(".\\ICON\\NoSleepingClock.ico")
-            #image = image.resize((16, 16), Image.LANCZOS) # 调整图片大小
+            try:
+                image = Image.open(".\\ICON\\NoSleepingClock.ico")
+            except Exception:    
+                # 图标文件读取失败后创建基础图标（使用更简单的图标）
+                icon_size = 16  # 使用更小的尺寸
+                image = Image.new('RGBA', (icon_size, icon_size), (0, 0, 0, 0))
+                dc = ImageDraw.Draw(image)
+                dc.rectangle((0, 0, icon_size-1, icon_size-1), outline="blue", fill="lightblue")
+                dc.text((3, 2), "NS", fill="black")
             
             # TODO: The double click function is not working
             # 定义双击事件处理函数
@@ -649,12 +648,16 @@ class NoSleepingClock:
             self.awake_screen_enabled = True  # 启动倒计时功能
         
         # 3. 更新主窗口状态
+        self.control_btn.config(text="No Sleeping", bg="#f44336")
+        self.status_label.config(text="No sleeping is running now", fg="#d32f2f")
+        self.auto_stop_checkbox.config(state='!disabled')
+        self.hours_combobox.config(state='readonly')  # 下拉框可看
         self.auto_stop_checkbox.state(['selected'])  # 勾选复选框
-        self.hours_combobox.config(state='readonly')
+        
         self.on_hour_selected()  # 触发倒计时初始化
         
         # 4. 启动倒计时
-        self.start_timer()
+        #self.start_timer()
         
         # 5. 刷新菜单显示
         self.update_tray_menu()
