@@ -20,14 +20,14 @@ ES_SYSTEM_REQUIRED = 0x00000001 #（系统需要保持活跃）
 ES_DISPLAY_REQUIRED = 0x00000002 #（显示器需要保持活跃）
 
 # 配置日志功能
-logger.add(
-    "app.log",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {process.id}:{thread.id} | {module}:{line} | {message}",
-    rotation="5 MB",
-    retention="3 days",
-    compression="zip",
-    encoding="UTF-8"
-)
+# logger.add(
+#     "app.log",
+#     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {process.id}:{thread.id} | {module}:{line} | {message}",
+#     rotation="5 MB",
+#     retention="3 days",
+#     compression="zip",
+#     encoding="UTF-8"
+# )
 
 
 def log_function_call(func):
@@ -216,8 +216,8 @@ class NoSleepingClock:
                         text=f"No sleeping will stop after {hours}h {minutes}m {seconds}s",
                         fg="#1976D2"
                     )
-            if int(self.remaining_time % 2) == 0:
-                logger.debug(f"status_label updated: {self.remaining_time} seconds left")
+            # if int(self.remaining_time % 2) == 0:
+            #     logger.debug(f"status_label updated: {self.remaining_time} seconds left")
     
     # 复选框状态变化处理           
     def on_auto_stop_checkbox(self):
