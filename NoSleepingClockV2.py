@@ -12,6 +12,20 @@ from io import BytesIO
 import ctypes
 from functools import wraps
 import pystray  # 系统托盘图标库
+from pathlib import Path
+import os
+import sys
+
+# 获取当前ico文件的绝对路径
+if getattr(sys, 'frozen', False):
+    # nuitka onefile mode
+    current_dir = Path(sys._MEIPASS)
+else:
+    current_dir = Path(__file__).parent
+    
+icon_path = current_dir / "ICON" / "NoSleepingClock.ico"
+icon_path = str(icon_path)
+logger.debug(f"icon_path: {icon_path}")
 
 
 # Windows API：设置系统执行状态
@@ -44,7 +58,7 @@ class NoSleepingClock:
     def __init__(self, root):
         self.root = root
         self.root.title("No Sleeping Clock")
-        self.root.geometry("500x450")  # 增加窗口高度以容纳新控件
+        #self.root.geometry("500x450")  # 增加窗口高度以容纳新控件
         self.root.resizable(False, False)
         self.root.configure(bg="#f0f0f0")
 
@@ -74,11 +88,15 @@ class NoSleepingClock:
         self.weather_font = font.Font(family="Segoe UI Variable", size=11, weight="bold")
 
         # 设置主窗口图标
-        self.root.iconbitmap(".\\ICON\\NoSleepingClock.ico")
+        self.root.iconbitmap(icon_path)
     
         # 创建界面
         self.create_widgets()
-
+        
+        # 让窗口根据内容调整大小
+        self.root.update()  # 更新窗口以计算控件实际大小
+        self.root.minsize(self.root.winfo_width(), self.root.winfo_height())  # 设置最小尺寸
+        
         # 更新时钟
         self.update_clock()
         self.time_unit = 3600  # 每小时的秒数
@@ -140,7 +158,7 @@ class NoSleepingClock:
 
         # 状态显示
         self.status_label = tk.Label(main_frame, text="No sleeping is being Disabled", fg="#666666", bg="#f0f0f0", font=self.status_font)
-        self.status_label.pack(pady=10)
+        self.status_label.pack(pady=5)
 
         # 控制按钮区域
         control_frame = tk.Frame(main_frame, bg="#f0f0f0")
@@ -156,7 +174,7 @@ class NoSleepingClock:
             bg="#4CAF50", fg="white",
             relief=tk.RAISED, bd=3
         )
-        self.control_btn.pack(side=tk.LEFT, padx=5)
+        self.control_btn.pack(side=tk.LEFT, padx=10, pady=10)
 
         # 自动停止复选框
         self.auto_stop_checkbox = ttk.Checkbutton(
@@ -179,7 +197,7 @@ class NoSleepingClock:
             state=tk.DISABLED,
             width=4
         )
-        self.hours_combobox.pack(side=tk.LEFT, padx=5)
+        self.hours_combobox.pack(side=tk.LEFT, padx=10)
 
         # 绑定下拉框选择事件
         self.hours_combobox.bind("<<ComboboxSelected>>", self.on_hour_selected)
@@ -575,7 +593,7 @@ class NoSleepingClock:
                 return
             
             try:
-                image = Image.open(".\\ICON\\NoSleepingClock.ico")
+                image = Image.open(icon_path)
             except Exception:    
                 # 图标文件读取失败后创建基础图标（使用更简单的图标）
                 icon_size = 16  # 使用更小的尺寸
