@@ -5,18 +5,18 @@ import tkinter as tk
 from tkinter import font, messagebox, ttk
 import datetime
 from lunardate import LunarDate
-import requests  # 天气API请求库
-from loguru import logger  # 日志库
+import requests  # Weather API request library
+from loguru import logger  # Logging library
 from PIL import Image, ImageTk, ImageDraw
 from io import BytesIO
 import ctypes
 from functools import wraps
-import pystray  # 系统托盘图标库
+import pystray  # System tray icon library
 from pathlib import Path
 import os
 import sys
 
-# 获取当前ico文件的绝对路径
+# Get the absolute path of the current ico file
 if getattr(sys, 'frozen', False):
     # nuitka onefile mode
     current_dir = Path(sys._MEIPASS)
@@ -28,12 +28,12 @@ icon_path = str(icon_path)
 logger.debug(f"icon_path: {icon_path}")
 
 
-# Windows API：设置系统执行状态
-ES_CONTINUOUS = 0x80000000 #（持续生效）
-ES_SYSTEM_REQUIRED = 0x00000001 #（系统需要保持活跃）
-ES_DISPLAY_REQUIRED = 0x00000002 #（显示器需要保持活跃）
+# Windows API: Set system execution state
+ES_CONTINUOUS = 0x80000000 # (Continuous effect)
+ES_SYSTEM_REQUIRED = 0x00000001 # (System needs to stay active)
+ES_DISPLAY_REQUIRED = 0x00000002 # (Display needs to stay active)
 
-# 配置日志功能
+# Configure logging functionality
 # logger.add(
 #     "app.log",
 #     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {process.id}:{thread.id} | {module}:{line} | {message}",
@@ -45,7 +45,7 @@ ES_DISPLAY_REQUIRED = 0x00000002 #（显示器需要保持活跃）
 
 
 def log_function_call(func):
-    """配置装饰器记录函数调用"""
+    """Decorator for logging function calls"""
     @wraps(func)
     def wrapper(*args, **kwargs):
         logger.debug(f"Calling function: {func.__name__} with args: {args}, kwargs: {kwargs}")
@@ -58,71 +58,71 @@ class NoSleepingClock:
     def __init__(self, root):
         self.root = root
         self.root.title("No Sleeping Clock")
-        #self.root.geometry("500x450")  # 增加窗口高度以容纳新控件
+        #self.root.geometry("500x450")  # Increase window height to accommodate new controls
         self.root.resizable(False, False)
         self.root.configure(bg="#f0f0f0")
 
-        # 线程锁和状态变量
+        # Thread lock and state variables
         self.lock = threading.Lock()
         self.awake_screen_enabled = False
         self.running = True
-        self.timer_active = False  # 倒计时状态标志
-        self.remaining_time = 0  # 剩余时间（秒）
-        self.timer_thread = None  # 倒计时线程
+        self.timer_active = False  # Countdown status flag
+        self.remaining_time = 0  # Remaining time (seconds)
+        self.timer_thread = None  # Countdown thread
 
-        # 新增状态变量
-        self.checkbox_enabled = False  # 是否启用自动停止
-        self.checkbox_var = tk.IntVar(value=0) # 复选框变量 - 默认不勾选
-        self.selected_hours = tk.StringVar(value="8")  # 默认8小时
+        # Checkbox related variables
+        self.checkbox_enabled = False  # Whether to enable auto-stop
+        self.checkbox_var = tk.IntVar(value=0) # Checkbox variable - unchecked by default
+        self.selected_hours = tk.StringVar(value="8")  # Default: 8 hours
 
-        # 天气相关配置
-        self.weather_api_key = "d98529ebc7824327abd62335250709"  # 替换为你的WeatherAPI密钥 https://www.weatherapi.com/my/
-        self.current_city = "shanghai"  # 默认城市, 也可用https://ipapi.co/json/ 动态获取IP地址对应的城市
+        # Weather-related configuration
+        self.weather_api_key = "d98529ebc7824327abd62335250709"  # Replace with your WeatherAPI key https://www.weatherapi.com/my/
+        self.current_city = "shanghai"  # Default city, or dynamically get city from IP via https://ipapi.co/json/
         self.weather_data = {"temp": "--", "condition": "Loading..."}
 
-        # 设置字体
+        # Set fonts
         self.time_font = font.Font(family="Microsoft YaHei UI", size=40, weight="bold")
         self.date_font = font.Font(family="Microsoft YaHei UI", size=16)
         self.lunar_font = font.Font(family="Microsoft YaHei UI", size=14)
         self.status_font = font.Font(family="Microsoft YaHei UI", size=13, weight="bold")
         self.weather_font = font.Font(family="Segoe UI Variable", size=11, weight="bold")
 
-        # 设置主窗口图标
+        # Set main window icon
         self.root.iconbitmap(icon_path)
     
-        # 创建界面
+        # Create UI
         self.create_widgets()
         
-        # 让窗口根据内容调整大小
-        self.root.update()  # 更新窗口以计算控件实际大小
-        self.root.minsize(self.root.winfo_width(), self.root.winfo_height())  # 设置最小尺寸
+        # Adjust window size based on content
+        self.root.update()  # Update window to calculate actual control sizes
+        self.root.minsize(self.root.winfo_width(), self.root.winfo_height())  # Set minimum size
         
-        # 更新时钟
+        # Update clock
         self.update_clock()
-        self.time_unit = 3600  # 每小时的秒数
-        #self.time_unit = 10  # 测试用，每10秒代表1小时
+        self.time_unit = 3600  # Seconds per hour
+        #self.time_unit = 10  # For testing: 10 seconds represent 1 hour
         
-        # 启动自动点击线程
+        # Start auto-click thread
         self.awake_thread = threading.Thread(target=self.awake_screen, daemon=True)
         self.awake_thread.start()
 
-        # 启动天气更新线程
+        # Start weather update thread
         self.weather_thread = threading.Thread(target=self.update_weather, daemon=True)
         self.weather_thread.start()
 
-        # 窗口关闭事件
+        # Window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        # 创建托盘相关配置
+        # Create system tray configuration
         self.tray_icon = None
         self.minimized_to_tray = False
-        self.tray_icon_created = False  # 托盘图标创建标志
+        self.tray_icon_created = False  # Tray icon creation flag
         
-        # 创建托盘图标事件绑定
-        #self.root.protocol("WM_ICONIZE", self.on_minimize) # 窗口最小化事件绑定
-        self.root.bind("<Unmap>", self.on_window_unmap) # 另一种最小化事件绑定
+        # Create window minimize event handler
+        #self.root.protocol("WM_ICONIZE", self.on_minimize) # Window minimize event binding
+        self.root.bind("<Unmap>", self.on_window_unmap) # Alternative minimize event binding
         
-        # 托盘running hours子菜单初始化时同步初始值
+        # Sync initial value when tray 'running hours' submenu initializes
         #self.selected_hour = int(self.selected_hours.get())
         self.selected_hour = None
         self.awake_screen_enabled = False
@@ -131,11 +131,11 @@ class NoSleepingClock:
         main_frame = tk.Frame(self.root, bg="#f0f0f0")
         main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
 
-        # 时间显示
+        # time label
         self.time_label = tk.Label(main_frame, font=self.time_font, text="", bg="#f0f0f0", fg="#333333")
         self.time_label.pack(pady=10)
 
-        # 日期和星期显示
+        # date and weekday labels
         self.date_frame = tk.Frame(main_frame, bg="#f0f0f0")
         self.date_frame.pack()
 
@@ -144,11 +144,11 @@ class NoSleepingClock:
         self.weekday_label = tk.Label(self.date_frame, font=self.date_font, text="", bg="#f0f0f0", fg="#555555")
         self.weekday_label.pack(side=tk.LEFT, padx=10)
 
-        # 阴历显示
+        # lunar label
         self.lunar_label = tk.Label(main_frame, font=self.lunar_font, text="", bg="#f0f0f0", fg="#777777")
         self.lunar_label.pack(pady=5)
 
-        # 天气信息显示
+        # weather information
         self.weather_frame = tk.Frame(main_frame, bg="#f0f0f0")
         self.weather_frame.pack(pady=5)
         self.weather_icon = tk.Label(self.weather_frame, text="☀️", font=("SimHei", 14), bg="#f0f0f0")
@@ -156,15 +156,15 @@ class NoSleepingClock:
         self.weather_label = tk.Label(self.weather_frame, font=self.weather_font, text="", bg="#f0f0f0", fg="#007BFF")
         self.weather_label.pack(side=tk.LEFT, padx=5)
 
-        # 状态显示
+        # status label
         self.status_label = tk.Label(main_frame, text="No sleeping is being Disabled", fg="#666666", bg="#f0f0f0", font=self.status_font)
         self.status_label.pack(pady=5)
 
-        # 控制按钮区域
+        # control frame
         control_frame = tk.Frame(main_frame, bg="#f0f0f0")
         control_frame.pack(pady=10)
 
-        # No Sleeping按钮
+        # No Sleeping button
         self.control_btn = tk.Button(
             control_frame,
             text="No Sleeping",
@@ -176,7 +176,7 @@ class NoSleepingClock:
         )
         self.control_btn.pack(side=tk.LEFT, padx=10, pady=10)
 
-        # 自动停止复选框
+        # checkbox layout configuration
         self.auto_stop_checkbox = ttk.Checkbutton(
             control_frame,
             text="running for hours:",
@@ -188,7 +188,7 @@ class NoSleepingClock:
         )
         self.auto_stop_checkbox.pack(side=tk.LEFT)
 
-        # 时间选择下拉框
+        # combobox for selecting hours
         self.hours_combobox = ttk.Combobox(
             control_frame,
             textvariable=self.selected_hours,
@@ -199,7 +199,7 @@ class NoSleepingClock:
         )
         self.hours_combobox.pack(side=tk.LEFT, padx=10)
 
-        # 绑定下拉框选择事件
+        # event binding for combobox selection
         self.hours_combobox.bind("<<ComboboxSelected>>", self.on_hour_selected)
 
 
@@ -237,7 +237,7 @@ class NoSleepingClock:
             # if int(self.remaining_time % 2) == 0:
             #     logger.debug(f"status_label updated: {self.remaining_time} seconds left")
     
-    # 复选框状态变化处理           
+    # checkbox event handler           
     def on_auto_stop_checkbox(self):
         with self.lock:
             self.checkbox_enabled = self.auto_stop_checkbox.instate(['selected'])
@@ -249,15 +249,15 @@ class NoSleepingClock:
                 self.start_timer()
         else:
             self.hours_combobox.config(state='readonly')
-            self.stop_timer()   # 强制清理残留timer线程
+            self.stop_timer()   # cleaning up the timer thread
 
         self.root.after(0, self.update_status_label)
         self.update_tray_menu()
 
-    # 下拉框选择事件处理
+    # combobox event handler
     def on_hour_selected(self, event=None):
         selected_hours = int(self.selected_hours.get())
-        self.selected_hour = selected_hours # 同步更新托盘菜单状态
+        self.selected_hour = selected_hours # update the tray menu
         total_seconds = selected_hours * self.time_unit
         logger.info(f"Selected {selected_hours} hours ({total_seconds} seconds)")
         
@@ -270,48 +270,42 @@ class NoSleepingClock:
         self.root.after(0, self.update_status_label)
         self.update_tray_menu()
     
-    # 启动/停止 No Sleeping 功能
+    # start/stop No Sleeping button event handler
     def toggle_awake_screen(self):
         with self.lock:
             self.awake_screen_enabled = not self.awake_screen_enabled
         logger.debug(f"Toggle awake_screen: {self.awake_screen_enabled}")
-        # 更新按钮和状态标签
-        if self.awake_screen_enabled: # 按下按钮时
+        # update button and status label
+        if self.awake_screen_enabled: # push down the button
             self.control_btn.config(text="No Sleeping", bg="#f44336")
             self.status_label.config(text="No sleeping is running now", fg="#d32f2f")
             self.auto_stop_checkbox.config(state='!disabled')
             self.checkbox_enabled = self.auto_stop_checkbox.instate(['selected'])
             logger.debug(f"Checkbox enabled: {self.checkbox_enabled}")
-            self.hours_combobox.config(state='readonly')  # 下拉框可看
+            self.hours_combobox.config(state='readonly')  # combobox can be selected
             if self.checkbox_enabled:
-                self.start_timer()  # 自动启动倒计时
+                self.start_timer()  # start timer thread
             logger.info("No Sleeping is running now")
-        else: # 按钮取消时
+        else: # release button
             self.disable_awake_screen()
             logger.info("No Sleeping is being disabled")
-            # self.control_btn.config(text="No sleeping", bg="#4CAF50")
-            # self.status_label.config(text="No sleeping is being disabled", fg="#666666")
-            # self.auto_stop_checkbox.config(state='disabled')
-            # self.checkbox_enabled = False
-            # self.hours_combobox.config(state='disabled')
-            
-            #self.stop_timer()  # 确保timer线程被清理
+
         
         self.root.after(0, self.update_status_label)
         self.update_tray_menu()
 
-    # 维持屏幕唤醒的线程函数
+    # function for awake screen
     #@log_function_call
     def awake_screen(self):
-        previous_enabled = False  # 初始化状态变量,用于判断按钮点按状态变化的
+        previous_enabled = False  # variable for looking previous button state
 
         while self.running:
             with self.lock:
                 enabled = self.awake_screen_enabled
 
-            # 检查状态是否发生变化
+            # Check if state changed
             if enabled != previous_enabled:
-                if enabled:  # 状态由 False → True
+                if enabled:  # state False → True
                     try:
                         result = ctypes.windll.kernel32.SetThreadExecutionState(
                             ES_CONTINUOUS | 
@@ -322,48 +316,48 @@ class NoSleepingClock:
                             raise ctypes.WinError()
                         logger.debug("Win API SetThreadExecutionState called successfully")
 
-                        # 更新 UI 状态
+                        # update UI
                         self.root.after(0, lambda: self.status_label.config(
                             text="No sleeping is running now", fg="#1976D2"))
                     except Exception as e:
                         logger.error(f"SetThreadExecutionState failed: {e}")
-                        # 备用方案：移动鼠标
+                        # fallback to pyautogui
                         screen_width, screen_height = pyautogui.size()
                         x, y = pyautogui.position()
                         pyautogui.moveTo(x + 1, y)
                         logger.warning("Using pyautogui as fallback")
 
-                else:  # 状态由 True → False
+                else:  # state True → False
                     try:
                         result = ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
                         if result == 0:
                             raise ctypes.WinError()
                         logger.debug("Reset execution state to allow sleep")
 
-                        # 更新 UI 状态
+                        # update UI
                         self.root.after(0, lambda: self.status_label.config(
                             text="No sleeping is being disabled", fg="#2E7D32"))
                     except Exception as e:
                         logger.error(f"Failed to reset execution state: {e}")
                     
-                    self.stop_timer()  # 确保timer线程被清理
+                    self.stop_timer()  
 
-                # 更新 previous_enabled
+                # update previous_enabled
                 previous_enabled = enabled
 
-            # 功能启用时，每 5 秒执行一次
+            # When enabled is True, sleep for 5 seconds to reduce CPU usage
             if enabled:
                 time.sleep(5)
             else:
-                time.sleep(1)  # 状态未启用时，降低 CPU 使用率
+                time.sleep(1)  
 
     @log_function_call
     def start_timer(self):
-        """启动倒计时线程"""
+        """timer thread"""
         if not self.checkbox_enabled or not self.awake_screen_enabled:
             return
         
-        # 先停止任何正在运行的 timer_thread
+        # stop any running timer_thread
         if self.timer_thread and self.timer_thread.is_alive():
             logger.debug("Stopping existing timer thread before starting a new one")
             self.stop_timer()
@@ -387,23 +381,22 @@ class NoSleepingClock:
                     if not self.timer_active or not self.awake_screen_enabled or self.remaining_time <= 0:
                         break
                     current_time = self.remaining_time
-                time.sleep(0.1)  # 更频繁检查状态变化
+                time.sleep(0.1)  # check every 0.1 seconds
                 
                 with self.lock:
                     self.remaining_time = max(0, current_time - 0.1)
                 
-                # 仅在秒数变化时更新UI，减少UI更新频率
+                # only update UI when time changes every 1s
                 if int(self.remaining_time) != int(current_time):
                     self.root.after(0, self.update_status_label)
             
-            # 倒计时结束，自动关闭功能
+            # stop function when time is up
             if self.remaining_time <= 0 and self.awake_screen_enabled:
                 self.root.after(0, self.disable_awake_screen)
                 logger.info("Timer ended, No Sleeping function is being disabled automatically")
         except Exception as e:
             logger.error(f"Timer thread error: {e}")
         finally:
-            # run_timer 线程正常/异常退出后，强制清理残留timer线程
             self.stop_timer()
 
     @log_function_call
@@ -415,9 +408,9 @@ class NoSleepingClock:
             self.timer_active = False
 
         try:
-            # 处理timer_thread的异常退出
+            # check if timer_thread is still alive
             if self.timer_thread and self.timer_thread.is_alive():
-                self.timer_thread.join(timeout=0.5)  # 等待 0.5 秒（足够响应 0.1s sleep）
+                self.timer_thread.join(timeout=0.5)  # wait for 0.5s (enough time for 1s sleep）
 
                 if self.timer_thread.is_alive():
                     logger.warning(f"Timer thread {self.timer_thread.name} did not exit cleanly, forcing cleanup")
@@ -427,16 +420,16 @@ class NoSleepingClock:
         except Exception as e:
             logger.error(f"Error stopping timer thread: {e}")
         finally:
-            self.timer_thread = None  # 确保引用被清理
+            self.timer_thread = None  # clean up thread reference
             logger.info("ALL Timer has been stopped")    
 
         self.root.after(0, self.update_status_label)
 
-        self.log_active_threads()  # 记录停止后状态
+        self.log_active_threads()  # check threads status
         logger.debug("Stop Timer done ✅")
 
     def log_active_threads(self):
-        """记录当前所有活跃线程，特别标注 timer_thread"""
+        """record active threads and specially timer_thread"""
         active_threads = threading.enumerate()
         timer_threads = [t for t in active_threads if "TimerThread" in t.name]
 
@@ -462,8 +455,8 @@ class NoSleepingClock:
         self.auto_stop_checkbox.config(state='disabled')
         self.hours_combobox.config(state='disabled')
 
-        self.stop_timer()  # 确保timer线程被清理
-        self.update_tray_menu()  # 更新托盘菜单
+        self.stop_timer()  # clean up timer thread
+        self.update_tray_menu()  # update tray menu
 
     def update_clock(self):
         now = datetime.datetime.now()
@@ -476,7 +469,7 @@ class NoSleepingClock:
         weekday_str = now.strftime("%A")
         self.weekday_label.config(text=weekday_str)
 
-        # 更新阴历
+        # update lunar calendar
         try:
             lunar = LunarDate.fromSolarDate(now.year, now.month, now.day)
             #logger.debug(f"year: {now.year}, month: {now.month}, day: {now.day}")
@@ -487,7 +480,7 @@ class NoSleepingClock:
         except Exception as e:
             self.lunar_label.config(text="Lunar Calendar CANNOT LOAD...")
 
-        # 每秒更新一次
+        # update every 1s
         self.root.after(1000, self.update_clock)
 
     def number_to_chinese(self, num):
@@ -498,7 +491,7 @@ class NoSleepingClock:
         #logger.debug(f"chinese num: {chinese_num}")
         return chinese_num[num - 1] if 1 <= num <= 30 else str(num)
     
-    # 天气API调用（WeatherAPI.com）
+    # wether API （WeatherAPI.com）
     def update_weather(self):
         while self.running:
             try:
@@ -529,7 +522,7 @@ class NoSleepingClock:
                 self.root.after(0, lambda: self.update_weather_ui(
                     "--", "faied to load", "❌"))
 
-            # 天气信息更新的信息完成后返回之前的功能是否使用的状态
+            # Weather information更新的信息完成后返回之前的功能是否使用的状态
             if self.awake_screen_enabled:
                 self.status_label.config(text="No sleeping is running now", fg="#d32f2f")
             else:
@@ -762,7 +755,7 @@ class NoSleepingClock:
         #     self.tray_icon = None
         #     self.tray_icon_created = False
 
-    # 窗口关闭：
+    # GUI close event：
     def on_close(self):
         """覆盖窗口关闭事件"""
         if messagebox.askokcancel("Quit", "Do you want to Quit the Window?"):
@@ -770,23 +763,21 @@ class NoSleepingClock:
                 self.running = False
                 self.timer_active = False
             
-            # 停止托盘图标
+            # stop tray menu
             if self.tray_icon and self.tray_icon.visible:
                 try:
                     self.tray_icon.stop()
                 except:
                     pass
             
-            # 等待awake_thread线程结束
+            # waiting awake_thread stop
             if self.awake_thread and self.awake_thread.is_alive():
                 self.awake_thread.join(timeout=2.0)
-            # 处理timer线程
             self.stop_timer()
 
             self.root.destroy()
 
 
-    # main函数
 if __name__ == "__main__":
     try:
         root = tk.Tk()
