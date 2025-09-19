@@ -17,12 +17,22 @@
 - 可配置的自动停止选项
 - 美观的UI设计和布局
 
+### 界面图片
+- 启动时，可以看时间，日期，星期和农历，基于本机ip地址的天气信息:
+![start up](image.png)
+- 运行中, 不勾选是永久运行，勾选时可选运行时间, 倒计时结束回到主界面:
+![running](image-1.png)
+- 有托盘功能
+![tray icon](image-2.png)
+- 托盘菜单, 状态和主界面同步
+![tray menu](image-3.png)
+
 ## 技术实现
 
 ### 主要方法
 
 #### 防止睡眠机制
-程序使用Windows API `SetThreadExecutionState`来防止系统进入睡眠状态：
+程序使用Windows API `SetThreadExecutionState`来防止系统进入睡眠状态：（admin 运行`powercfg -requests`可以看到， 原理和 [`DontSleep`](https://www.softwareok.com/?seite=Microsoft/DontSleep)软件的一样）
 
 ```python
 ctypes.windll.kernel32.SetThreadExecutionState(
