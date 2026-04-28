@@ -23,10 +23,11 @@ if getattr(sys, 'frozen', False):
 else:
     current_dir = Path(__file__).parent
     
-icon_path = current_dir / "ICON" / "NoSleepingClock.ico"
-icon_path = str(icon_path)
-logger.debug(f"icon_path: {icon_path}")
-
+icon_path_off = current_dir / "ICON" / "NoSleepingClock.ico"
+icon_path_on = current_dir / "ICON" / "NoSleepingClock_ON.ico"
+icon_path = str(icon_path_off)
+logger.debug(f"icon_path_off: {icon_path_off}")
+logger.debug(f"icon_path_on: {icon_path_on}")
 
 # Windows API: Set system execution state
 ES_CONTINUOUS = 0x80000000 # (Continuous effect)
@@ -126,6 +127,9 @@ class NoSleepingClock:
         #self.selected_hour = int(self.selected_hours.get())
         self.selected_hour = None
         self.awake_screen_enabled = False
+
+        # Create system tray icon on startup
+        self.create_tray_icon()
         
     def create_widgets(self):
         main_frame = tk.Frame(self.root, bg="#f0f0f0")
@@ -290,9 +294,9 @@ class NoSleepingClock:
             self.disable_awake_screen()
             logger.info("No Sleeping is being disabled")
 
-        
         self.root.after(0, self.update_status_label)
         self.update_tray_menu()
+        self.update_tray_icon()
 
     # function for awake screen
     #@log_function_call
@@ -690,6 +694,18 @@ class NoSleepingClock:
             # 更新菜单
             self.tray_icon.menu = self.tray_menu
             self.tray_icon.update_menu()
+
+    def update_tray_icon(self):
+        """更新托盘图标"""
+        if self.tray_icon:
+            try:
+                # 根据 awake_screen_enabled 状态选择图标
+                icon_path_to_use = str(icon_path_on) if self.awake_screen_enabled else str(icon_path_off)
+                image = Image.open(icon_path_to_use)
+                self.tray_icon.icon = image
+                logger.info(f"Tray icon updated to: {icon_path_to_use}")
+            except Exception as e:
+                logger.error(f"Failed to update tray icon: {e}")
 
     def run_tray_icon(self):
         """运行托盘图标"""
