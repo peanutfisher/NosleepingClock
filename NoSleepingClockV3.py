@@ -42,6 +42,7 @@ class SignalEmitter(QObject):
     update_weather_signal = pyqtSignal(str, str, str, str)
     update_status_signal = pyqtSignal()
     update_clock_signal = pyqtSignal()
+    disable_awake_signal = pyqtSignal()
 
 def log_function_call(func):
     @wraps(func)
@@ -80,6 +81,7 @@ class NoSleepingClock(QMainWindow):
         self.signal_emitter.update_weather_signal.connect(self.update_weather_ui)
         self.signal_emitter.update_status_signal.connect(self.update_status_label)
         self.signal_emitter.update_clock_signal.connect(self.update_clock)
+        self.signal_emitter.disable_awake_signal.connect(self.disable_awake_screen)
         
         # Create UI
         self.create_widgets()
@@ -89,6 +91,7 @@ class NoSleepingClock(QMainWindow):
         
         # Update clock
         self.time_unit = 3600
+        #self.time_unit = 10
         
         # Start auto-click thread
         self.awake_thread = threading.Thread(target=self.awake_screen, daemon=True)
@@ -369,16 +372,16 @@ class NoSleepingClock(QMainWindow):
                         break
                     current_time = self.remaining_time
                 time.sleep(0.1)
-                
+
                 with self.lock:
                     self.remaining_time = max(0, current_time - 0.1)
-                
+
                 if int(self.remaining_time) != int(current_time):
                     self.signal_emitter.update_status_signal.emit()
-            
+
             if self.remaining_time <= 0 and self.awake_screen_enabled:
-                # Use QTimer to call disable_awake_screen on main thread
-                QTimer.singleShot(0, self.disable_awake_screen)
+                # Use signal to call disable_awake_screen on main thread
+                self.signal_emitter.disable_awake_signal.emit()
                 logger.info("Timer ended, No Sleeping function is being disabled automatically")
         except Exception as e:
             logger.error(f"Timer thread error: {e}")
@@ -429,6 +432,7 @@ class NoSleepingClock(QMainWindow):
         
         self.stop_timer()
         self.update_tray_menu()
+        self.update_tray_icon()
     
     def update_status_label(self):
         with self.lock:
@@ -596,6 +600,7 @@ class NoSleepingClock(QMainWindow):
         
         self.on_hour_selected(str(hours))
         self.update_tray_menu()
+        self.update_tray_icon()
         
         logger.debug("Time option set complete")
     
